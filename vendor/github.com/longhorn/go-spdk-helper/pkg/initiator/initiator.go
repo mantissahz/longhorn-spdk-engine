@@ -1188,7 +1188,37 @@ func (i *Initiator) removeLinearDmDevice(force, deferred bool) error {
 	}
 
 	i.logger.Info("Removing linear dm device")
-	return util.DmsetupRemove(i.Name, force, deferred, i.executor)
+	if err := util.DmsetupRemove(i.Name, force, deferred, i.executor); err != nil {
+		return err
+	}
+
+	encryptedDmDevPath := fmt.Sprintf("%s-encrypted", dmDevPath)
+	if _, err := os.Stat(encryptedDmDevPath); err == nil {
+		i.logger.Infof("Removing encrypted linear dm device: %s", encryptedDmDevPath)
+		if err := util.DmsetupRemove(encryptedDmDevPath, force, deferred, i.executor); err != nil {
+			if isRemoveDmDevNotFoundError(err) {
+				i.logger.WithError(err).Debugf("Encrypted linear dm device %s not found", encryptedDmDevPath)
+				return nil
+			}
+			i.logger.WithError(err).Infof("[James_DBG] Failed to remove encrypted linear dm device: %s", encryptedDmDevPath)
+			return err
+		}
+	} else {
+		i.logger.WithError(err).Debugf("Failed to stat encrypted linear dm device %s", encryptedDmDevPath)
+	}
+
+	return nil
+}
+
+func isRemoveDmDevNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "no such device or address") ||
+		strings.Contains(errMsg, "not found") ||
+		strings.Contains(errMsg, "no such file or directory")
 }
 
 func (i *Initiator) createLinearDmDevice() error {
